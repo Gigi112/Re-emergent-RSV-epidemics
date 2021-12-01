@@ -70,26 +70,26 @@ covid_model <- function(t,y,parms, time.step='month'){
   
   Aging.Prop <- c(0,mu[1:(N.ages-1)]) # aging in
   
-  dy[,'M'] <- period.birth.rate*sum(States) - 
-    (omega+(mu+um))*M +
-    Aging.Prop*c(0,M[1:(N.ages-1)]) 
+  dy[,'M'] <- period.birth.rate*sum(States) - # birth into protected status
+    (omega+(mu+um))*M + # waning immunity + aging out + death/immigration/emmigration (um can be either positive or negative based on the the population growth)
+    Aging.Prop*c(0,M[1:(N.ages-1)]) # aging in
   
-  dy[,'S0'] <- omega*M -
-    lambda*S0 -
-    (mu + um)*S0 + 
-    Aging.Prop*c(0,S0[1:(N.ages-1)]) 
+  dy[,'S0'] <- omega*M - # after the maternal immunity wanes, individuals are susceptible to infections
+    lambda*S0 - # getting infections
+    (mu + um)*S0 + # aging out + death/immigration/emmigration (um can be either positive or negative based on the the population growth)
+    Aging.Prop*c(0,S0[1:(N.ages-1)]) # aging in
   
-  dy[,'I1'] <-   lambda*S0 - 
-    (gamma1 + mu + um)*I1 + 
-    Aging.Prop*c(0,I1[1:(N.ages-1)]) 
+  dy[,'I1'] <-   lambda*S0 - # being infected
+    (gamma1 + mu + um)*I1 + # rate of recovery + aging out + death/immigration/emmigration (um can be either positive or negative based on the the population growth)
+    Aging.Prop*c(0,I1[1:(N.ages-1)]) # aging in
   
-  dy[,'S1'] <- gamma1*I1 - 
-    sigma1*lambda*S1 - 
+  dy[,'S1'] <- gamma1*I1 - # after recovered from infections, individuals gain partial immunity
+    sigma1*lambda*S1 - # which reduced their risk of re-infection; sigma 1 here represnts the reduced risk 
     (mu+um)*S1 + 
     Aging.Prop*c(0,S1[1:(N.ages-1)]) 
   
   dy[,'I2'] <- sigma1*lambda*S1 - 
-    gamma2*I2-(mu + um)*I2 + 
+    gamma2*I2-(mu + um)*I2 + # second time infections will last shorter than the first time infection
     Aging.Prop*c(0,I2[1:(N.ages-1)]) 
   
   dy[,'S2'] <- gamma2*I2 - 
