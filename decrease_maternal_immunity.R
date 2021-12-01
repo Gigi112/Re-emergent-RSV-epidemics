@@ -1,6 +1,6 @@
 covid_model <- function(t,y,parms, time.step='month'){
   
-  States<-array(y, dim=dim(parms$yinit.matrix))
+  States<-array(y, dim=dim(parms$yinit.matrix)) # MSIS states
   dimnames(States) <- dimnames(parms$yinit.matrix)
   
   if(parms$time.step=='month'){
@@ -12,52 +12,52 @@ covid_model <- function(t,y,parms, time.step='month'){
   }
   
   if(t>=473 & t<= 485){
-    DurationMatImmunityDays=parms$ReducedDuration 
+    DurationMatImmunityDays=parms$ReducedDuration  # we assumed the maternal immunity decrease during this time period because of lack of boosting
   }else{
     DurationMatImmunityDays=parms$DurationMatImmunityDays
   }
   
-  omega = 1/(DurationMatImmunityDays/length.step)
+  omega = 1/(DurationMatImmunityDays/length.step) # rate of waning of maternal immunity
   
   mu= 1/parms$WidthAgeClassMonth
   if(parms$time.step=='week'){
-    mu= 1/(WidthAgeClassMonth*4.345)
+    mu= 1/(WidthAgeClassMonth*4.345) # aging process
   }
   
-  gamma1= 1/(parms$dur.days1/length.step)  #converts 1/days to 1/lenth.step
-  gamma2= 1/(parms$dur.days2/length.step)  
-  gamma3= 1/(parms$dur.days3/length.step)  
-  gamma4= gamma3  #??Is this right?? Yes, gamma3 stands for rate of recovery from subsequent infection
+  gamma1= 1/(parms$dur.days1/length.step)  # gamma1 stands for rate of recovery from the first infection
+  gamma2= 1/(parms$dur.days2/length.step)  # gamma2 stands for rate of recovery from the second infection
+  gamma3= 1/(parms$dur.days3/length.step)   # gamma3 stands for rate of recovery from subsequent infection
+  gamma4= gamma3  # gamma3 stands for rate of recovery from subsequent infection
   
   #Pull out the states  for the model as vectors
-  M <-  States[,'M']
-  S0 <-  States[,'S0']
-  I1 <-  States[,'I1']
+  M <-  States[,'M'] # protected by maternal immunity
+  S0 <-  States[,'S0'] # fully suceptible to infections
+  I1 <-  States[,'I1'] # first time being infected
   
-  S1 <-  States[,'S1']
-  I2 <-  States[,'I2']
+  S1 <-  States[,'S1'] # partial immunity after first infection
+  I2 <-  States[,'I2'] # second time infections
   
-  S2 <-  States[,'S2']
-  I3 <-  States[,'I3']
+  S2 <-  States[,'S2'] # further boosted immunity after second time infections
+  I3 <-  States[,'I3'] # third time infections
   
-  S3 <-  States[,'S3']
-  I4 <-  States[,'I4']
+  S3 <-  States[,'S3'] # further boosted immunity after subsequent infections
+  I4 <-  States[,'I4'] # any subsequent infections
   
-  N.ages <- length(M)
+  N.ages <- length(M) # age groups 
   
   ###Check the standardization of beta and overall structure of lambda here
-  #how does'baseline txn rate' figure in here?
-  ##???##################
+  ##force of transmission ##################
   seasonal.txn <- (1+b1*cos(2*pi*(t-phi*period)/period))# seasonality waves
-  b <- baseline.txn.rate[t]/ (parms$dur.days1/length.step) # transmission probability per unit time
+  b <- baseline.txn.rate[t]/ (parms$dur.days1/length.step) # transmission probability per unit time; baseline.txn.rate is a vector stands for the transmissibility at that time point
+  # will be lower during COVID mitigation period
   beta <-  (b/100)/(sum(yinit.matrix)^(1-q))*c2# q depends on transmission type (whether depends on population density or not); c2 is the contact matrix
   
-  beta_a_i <- seasonal.txn * beta/sum(States)
-  infectiousN <- I1 + rho1*I2 + rho2*I3 + rho2*I4
+  beta_a_i <- seasonal.txn * beta/sum(States) 
+  infectiousN <- I1 + rho1*I2 + rho2*I3 + rho2*I4 # infectious population times their relative infectiousness
   
   lambda <- infectiousN %*% beta_a_i 
   lambda <- as.vector(lambda)
-  ##########?????????????????##########################  
+  ##########ODE process##########################  
   
   dy <- matrix(NA, nrow=N_ages, ncol=ncol(States))
   colnames(dy) <- colnames(States)
@@ -65,10 +65,10 @@ covid_model <- function(t,y,parms, time.step='month'){
   period.birth.rate <- log(parms$PerCapitaBirthsYear[t,]+1)/period #B=annual birth rate
   
   #https://journals.plos.org/plospathogens/article/file?id=10.1371/journal.ppat.1004591.s016&type=supplementary
-  #mu represents aging to the next class
+  #mu represents aging out to the next class
   #um is death rate
   
-  Aging.Prop <- c(0,mu[1:(N.ages-1)])
+  Aging.Prop <- c(0,mu[1:(N.ages-1)]) # aging in
   
   dy[,'M'] <- period.birth.rate*sum(States) - 
     (omega+(mu+um))*M +
