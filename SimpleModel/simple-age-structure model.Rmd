@@ -287,8 +287,8 @@ plot(1:408,rowSums(H1),type="l",xlab="months",ylab="simulated RSV hospitalizatio
 
 barplot(colSums(H1),xlab="age group",ylab="Number of Hospitalizations") # simulated age distribution Age groups: The <12 month olds, were divided into monthy age classes. The 1-4 year olds are  divided into 1yearly age classes, then 5–9 years, 10–19 years, 20–39 years, 40–59-years, and 60+ years old
 
-Hosp_sim <- as.integer(rowSums(H1))
-agedist_Sim <- colSums(H1)
+Hosp_sim <- as.integer(rowSums(H1[301:408,]))
+agedist_Sim <- colSums(H1[301:408,])
 ```
 
 
@@ -330,7 +330,7 @@ fitmodel <-  function(parameters,dat) {   # takes the parameter values and datas
   results <- ode(y=yinit.vector, t=my_times,  
                func=simple_model, 
             parms=c(parmset,baseline.txn.rate=baseline.txn.rate,b1,phi,DurationMatImmunityDays=durx))
-  
+  t0 <- 108
   results<- tail(results,t0)
   St <- results[,-1]
    
