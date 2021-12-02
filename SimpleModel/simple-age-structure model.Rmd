@@ -1,0 +1,231 @@
+---
+title: "age structure"
+author: "ZHE ZHENG, Dan Weinberger, modified from Matlab code by Virginia Pitzer"
+date: "12/26/2020"
+output: html_document
+---
+```{r}
+library(deSolve)
+library(RColorBrewer)
+library(reshape2)
+```
+In Pitzer et al: The <12 month olds, were divided into monthy age classes. The remaining population was divided into 6 classes: 1–4 years old, 5–9 years, 10–19 years, 20–39 years, 40–59-years, and 60+ years old. In this example, the 1-4 year olds are divided into 12 month age classes as well. 
+
+
+```{r}
+#T is N time points; N_ages is number of age groups
+parmset <- readRDS('./data_and_parms/parmset.rds')
+Pop1 <- readRDS('./data_and_parms/Pop1.rds') #a matrix with T rows and  A columns
+B <-  readRDS('./data_and_parms/Birth_rate.rds')
+c2 <- readRDS( './data_and_parms/c2.rds')
+
+```
+
+#View contact matrix
+```{r}
+n.cols=100
+nice.cols <-  colorRampPalette(brewer.pal(9, "YlOrRd"))(n.cols)
+heatmap(c2/sum(diag(c2)), Rowv=NA, Colv=NA, scale='none', col=nice.cols)
+```
+Set names of Age groups 
+```{r}
+N_ages <- ncol(Pop1) 
+agenames <- paste0('Agegrp', 1:N_ages) #Could replace this with vector of actual age names
+```
+
+## Population size by time
+```{r}
+p <- apply(Pop1,1,sum)  # Total population at each time, a vector of length T
+```
+
+## Initialize the compartments (States) 
+```{r}
+StateNames <- c('M','S0','I1','S1','I2','S2','I3','S3','I4')
+States <- array(NA, dim=c(N_ages, length(StateNames) )) #  N age groups xN parameters 
+dimnames(States)[[1]] <- agenames
+dimnames(States)[[2]] <- StateNames
+
+yinit.matrix <- array(NA, dim=c(N_ages, length(StateNames) ))
+
+dimnames(yinit.matrix)[[1]] <- agenames
+dimnames(yinit.matrix)[[2]] <- StateNames
+
+yinit.matrix[,c('S1','I2','S2','I3','S3','I4')]  = 0
+yinit.matrix[,'M'] = c(Pop1[1,1:6], rep(0,N_ages-6))
+yinit.matrix[,'S0'] = c(rep(0,6),Pop1[1,7:N_ages]-rep(1,N_ages-6)) 
+yinit.matrix[,'I1'] = c(rep(0,6), rep(1,N_ages-6))  #initializes with 1 infected person per age group 
+
+yinit.vector <- as.vector(yinit.matrix) #Vectorize the ynit matrix
+
+# Create array that has the labels by age, State and use this to name the yinit.vector
+name.array <- array(NA, dim=dim(yinit.matrix))
+for(i in 1:dim(name.array)[1]){
+  for(j in 1:dim(name.array)[2]){
+      name.array[i,j] <- paste(dimnames(yinit.matrix)[[1]][i],dimnames(yinit.matrix)[[2]][j]  )
+    }
+  }
+
+name.vector <- as.vector(name.array)
+names(yinit.vector) <- name.vector
+
+```
+
+
+## Read in model and parameters
+
+```{r}
+source('./data_and_parms/simple_model.R') #Read in the model
+```
+
+
+**NOTE: time step here is in months--need to adjust seasonality accordingly**
+```{r}
+ start_time = 1 # start date (years)
+ tmax = nrow(B)
+# end_time = 25 # end date (years)
+my_times <- seq(start_time, tmax, by = 1) # gives a sequence from start to end
+											 # in increments of 1
+```
+
+
+##Settings parameters
+Most of these are described in Table 2 of Pitzer et al, PLOS Pathogens: https://journals.plos.org/plospathogens/article?id=10.1371/journal.ppat.1004591
+
+For birth rate:
+The weekly per capita birth rate (B_w) is equal to log(1+B)/52.18 because the data on the birth rate is annual and the differential equation model inherently assumes that growth is occurring exponentially. So if the annual birth rate is equal to 12 per 1000 per year (B=0.012), for example, then we are assuming that:
+
+$N1=N0exp(B_w*52.10)$     where N1 is the population after 1 year and N0 is the baseline population, and $N1=N0*(1+B)$.
+
+$1.012=1*exp(B_w*52.18)$
+
+$B_w=log(1.012)/52.18$.
+
+```{r setparms}
+#########################################
+#Matrix of dimension N_ages x N_ages
+#beta = beta 
+#########################################
+
+#########################################
+#Seasonal components--
+#???Should prob be estimated?
+b1=0.1830827 #Seasonal amplitude
+phi=3.327749 #Seasonal phase shift (weeks;[-26,26] 0=peak @ Jan 1)
+#########################################
+
+#########################################
+#Relative infectiousness for 2nd and subsequent infections
+rho1 = 0.75
+rho2 = 0.51
+#########################################
+
+#########################################
+# duration of infectiousness (months)
+#Duration in days
+dur.days1 <- 10 #days
+dur.days2 <- 7 #days
+dur.days3 <- 5 #days
+###########################################  
+
+###########################################
+# 1/duration of maternal immunity (DAYS)
+DurationMatImmunityDays= 16*7
+###########################################
+
+###########################################
+WidthAgeClassMonth = c(rep(1,times=12), rep(12,times=4),  60, 120, 240, 240, 240 )  #Aging rate=1/width age class (months) Vector of long N_age
+############################################
+
+############################################
+#????
+#What is time(-1) unit?
+#um= -0.0001833333  #?? is this right? only die from last age class--this maybe helps with this "We assumed deaths occurred from the last age class and adjusted the net rate of immigration/emigration and death from other age groups in order to produce a rate of population growth and age structure similar to that of the US." 
+#?????????
+#From Giny's code: um=log(0.993)/52 #net rate of crude deaths (+) and immigration (-) from all age groups (per week): can adjust this to approximate population growth in state# I calibrated this parameter so we can reproduce the population growth
+um= -0.0002227
+#############################################
+
+#############################################
+#Birth rate (births/person/YEAR
+#Matrix: T rows, N_ages columns; columns 2:N_ages all 0s
+PerCapitaBirthsYear=B 
+#############################################
+
+#############################################
+#Relaive risk of infection following 1st, 2nd, 3rd+ infections
+sigma1=0.76
+sigma2=0.6
+sigma3=0.4
+#############################################
+
+
+##To ESTIMTE from DATA?: Baseline transmission rate
+#############################################
+
+baseline.txn.rate <- 9.0
+q=1
+c2=c2
+
+```
+
+
+#Save parameters in a list
+```{r saveparms}
+parms<-list(PerCapitaBirthsYear=PerCapitaBirthsYear,
+            DurationMatImmunityDays=DurationMatImmunityDays,
+            WidthAgeClassMonth=WidthAgeClassMonth,
+            um=um,
+            b1=b1,
+            phi=phi,
+            rho1=rho1,
+            rho2=rho2,
+            dur.days1=dur.days1,
+            dur.days2=dur.days2,
+            dur.days3=dur.days3,
+            yinit.matrix=yinit.matrix,
+            baseline.txn.rate = baseline.txn.rate,
+            q=q,
+            c=c2,
+            sigma1=sigma1,
+            sigma2=sigma2,
+            sigma3=sigma3,
+            time.step='month'
+            )
+```
+
+
+## Run the model 
+Note here we are just simulating with set parameters, not fitting to data
+```{r}
+results <- ode(y=yinit.vector, t=my_times,  
+               func=simple_model, 
+            parms=parms )
+
+```
+
+## Extract the relevant results
+```{r}
+
+#Pitzer used a 40-50 YEAR burn in period
+burnN <- 20*12
+results.burned <- results[-c(1:burnN),]
+
+##Any infected person
+infected.cols <- results.burned[,c(grep('I1', colnames(results.burned)),grep('I2', colnames(results.burned)),grep('I3', colnames(results.burned)),grep('I4', colnames(results.burned)  )) ]
+
+infected.all <- apply(infected.cols,1, sum)
+
+infected.cols.m <- melt(infected.cols)
+infected.cols.m$agegrp <- sub(" .*", "",infected.cols.m$Var2 )
+infected.cols.c <- dcast(infected.cols.m, Var1~agegrp, fun.aggregate = sum)
+
+#Pop
+all.m <- melt(results.burned[,grep('Agegrp',colnames(results.burned))])
+all.m$agegrp <- sub(" .*", "",all.m$Var2 )
+all.c <- dcast(all.m, Var1~agegrp, fun.aggregate = sum)
+pop.all <- apply(all.c[,-1],1,sum)
+
+plot(infected.all, type='l')
+plot(pop.all,type="l")
+
+```
