@@ -15,9 +15,9 @@ In Pitzer et al: The <12 month olds, were divided into monthy age classes. The r
 ```{r}
 #T is N time points; N_ages is number of age groups
 parmset <- readRDS('./data_and_parms/parmset.rds')
-Pop1 <- readRDS('./data_and_parms/Pop1.rds') #a matrix with T rows and  A columns
+Pop1 <- readRDS('./data_and_parms/pop1.rds') #intial population
 B <-  readRDS('./data_and_parms/Birth_rate.rds')
-c2 <- readRDS( './data_and_parms/c2.rds')
+c2 <- readRDS( './data_and_parms/c2.rds') # contact matrix
 
 ```
 
@@ -29,13 +29,32 @@ heatmap(c2/sum(diag(c2)), Rowv=NA, Colv=NA, scale='none', col=nice.cols)
 ```
 Set names of Age groups 
 ```{r}
-N_ages <- ncol(Pop1) 
+N_ages <- length(Pop1) 
 agenames <- paste0('Agegrp', 1:N_ages) #Could replace this with vector of actual age names
+```
+
+```{r}
+###########################################
+# 1/duration of maternal immunity (DAYS)
+DurationMatImmunityDays= 112
+###########################################
+
+###########################################
+# update LRI and hospitalization probability
+###########################################
+al=21
+delta1=c(rep(.40,3),rep(.39,3), rep(.21,3),rep(.20,3),0.16,rep(.14,3),rep(0.05,al-16))#proportion of first infections that are LRI (by age)
+delta2=.5*delta1#proportion of second infectious that are LRI 
+delta3=.7*delta2#proportion of third infections that are LRI
+hosp1=c(.18*rep(.40,3),0.08*rep(.39,3),0.07*rep(.21,3),0.06*rep(.20,3),0.06*0.16,0.05*rep(.14,3),0.02*rep(0.05,al-16))#proportion of first LRIs that are hospitalized
+hosp2=.4*hosp1#proportion of second LRIs that are hospitalized
+hosp3=c(rep(0,al-2),0.00001,0.00004)#proportion of third LRIs that are hospitalized
+
 ```
 
 ## Population size by time
 ```{r}
-p <- apply(Pop1,1,sum)  # Total population at each time, a vector of length T
+p <- sum(Pop1)  # Total population at each time, a vector of length T
 ```
 
 ## Initialize the compartments (States) 
@@ -51,8 +70,8 @@ dimnames(yinit.matrix)[[1]] <- agenames
 dimnames(yinit.matrix)[[2]] <- StateNames
 
 yinit.matrix[,c('S1','I2','S2','I3','S3','I4')]  = 0
-yinit.matrix[,'M'] = c(Pop1[1,1:6], rep(0,N_ages-6))
-yinit.matrix[,'S0'] = c(rep(0,6),Pop1[1,7:N_ages]-rep(1,N_ages-6)) 
+yinit.matrix[,'M'] = c(Pop1[1:6], rep(0,N_ages-6))
+yinit.matrix[,'S0'] = c(rep(0,6),Pop1[7:N_ages]-rep(N_ages-6)) 
 yinit.matrix[,'I1'] = c(rep(0,6), rep(1,N_ages-6))  #initializes with 1 infected person per age group 
 
 yinit.vector <- as.vector(yinit.matrix) #Vectorize the ynit matrix
@@ -229,3 +248,122 @@ plot(infected.all, type='l')
 plot(pop.all,type="l")
 
 ```
+```{r}
+  St <- results[,-1]
+   q=1
+   b= parms$baseline.txn.rate/(parms$dur.days1/30.44)
+   beta=(b/100)/(sum(yinit.matrix)^(1-q))*c2
+   b1= parms$b1
+   phi=parms$phi
+   rho1=parms$rho1
+   rho2=parms$rho2
+   sigma1=parms$sigma1
+   sigma2=parms$sigma2
+   sigma3=parms$sigma3
+   t0=408
+   I1 <- results[,grep('I1', colnames(results))]
+   I2 <- results[,grep('I2', colnames(results))]
+   I3 <- results[,grep('I3', colnames(results))]
+   I4 <- results[,grep('I4', colnames(results))]
+   S1 <- results[,grep('S1', colnames(results))]
+   S2 <- results[,grep('S2', colnames(results))]
+   S3 <- results[,grep('S3', colnames(results))]
+   S0 <- results[,grep('S0', colnames(results))]
+   lambda1=matrix(0,nrow=t0,ncol=al)#Force of infection
+    for (t in 1:t0)
+    {lambda1[t,] <- as.vector((1+b1*cos(2*pi*(t-phi*12)/12))*((I1[t,]+rho1*I2[t,]+rho2*I3[t,]+rho2*I4[t,])%*%beta)/sum(St[t,]))}
+
+   
+   H1=matrix(0,nrow=t0,ncol=al)#Number of hospitalizations by age
+   for (i in 1:al){
+     H1[,i]=hosp1[i]*S0[,i]*lambda1[,i]+hosp2[i]*sigma1*S1[,i]*lambda1[,i]+hosp3[i]*sigma2*S2[,i]*lambda1[,i]+hosp3[i]*sigma3*S3[,i]*lambda1[,i]
+   }
+   
+```
+
+```{r}
+plot(1:408,rowSums(H1),type="l",xlab="months",ylab="simulated RSV hospitalizations")
+# need to get rid of the burn-in period
+
+barplot(colSums(H1),xlab="age group",ylab="Number of Hospitalizations") # simulated age distribution Age groups: The <12 month olds, were divided into monthy age classes. The 1-4 year olds are  divided into 1yearly age classes, then 5–9 years, 10–19 years, 20–39 years, 40–59-years, and 60+ years old
+
+Hosp_sim <- as.integer(rowSums(H1))
+agedist_Sim <- colSums(H1)
+```
+
+
+## fit the model to simulated data in order to estimate parameter sets
+```{r}
+parmset<-list(PerCapitaBirthsYear=PerCapitaBirthsYear,
+            WidthAgeClassMonth=WidthAgeClassMonth,
+            um=um,
+            rho1=rho1,
+            rho2=rho2,
+            dur.days1=dur.days1,
+            dur.days2=dur.days2,
+            dur.days3=dur.days3,
+            yinit.matrix=yinit.matrix,
+            q=q,
+            c=c2,
+            sigma1=sigma1,
+            sigma2=sigma2,
+            sigma3=sigma3,
+            time.step='month'
+            )
+
+fitmodel <-  function(parameters,dat) {   # takes the parameter values and dataset as inputs
+  protrans <- parameters[1] # estimate parameter related to R0 (baseline transmission rate)
+  amp <- parameters[2] # estimate parameter related to seasonal amplitude
+  trans <- parameters[3] # estimate parameter related to seasonal peak timing
+  DMD <- parameters[4] # estimate parameter related to the duration of maternal immunity
+  b1 <- exp(amp) #ensure positive 
+  baseline.txn.rate <- exp(protrans) #ensure positive
+  phi <-  (2*pi*(exp(trans))) / (1+exp(trans)) # transform to its scale in the model
+  durx <- exp(DMD) #ensure positive
+  durx <<- durx #somehow we need this for the function and model to recognize these parameters
+  baseline.txn.rate <<- baseline.txn.rate
+  b1 <<- b1
+  phi <<- phi
+
+
+   # Simulate the model with initial conditions and timesteps defined above, and parameter values from function call
+  results <- ode(y=yinit.vector, t=my_times,  
+               func=simple_model, 
+            parms=c(parmset,baseline.txn.rate=baseline.txn.rate,b1,phi,DurationMatImmunityDays=durx))
+  
+  results<- tail(results,t0)
+  St <- results[,-1]
+   
+   b=baseline.txn.rate/(parmset$dur.days1/30.44)
+   beta=(b/100)/(sum(yinit.matrix)^(1-1))*c2
+ 
+   lambda1=matrix(0,nrow=t0,ncol=al)#Force of infection
+    for (t in 1:t0)
+    {lambda1[t,] <- as.vector((1+b1*cos(2*pi*(t-phi*12)/12))*((St[t,(2*al+1):(3*al)]+rho1*St[t,(4*al+1):(5*al)]+rho2*St[t,(6*al+1):(7*al)]+rho2*St[t,(8*al+1):(9*al)])%*%beta)/sum(St[t,]))}
+
+  
+  H1=matrix(0,nrow=t0,ncol=al)#Number of hospitalizations by age
+  for (i in 1:al){
+    H1[,i]=hosp1[i]*St[,(al+i)]*lambda1[,i]+hosp2[i]*sigma1*St[,(3*al+i)]*lambda1[,i]+hosp3[i]*sigma2*St[,(5*al+i)]*lambda1[,i]+hosp3[i]*sigma3*St[,(7*al+i)]*lambda1[,i]
+    }
+  H <- rowSums(H1)
+
+   
+   LLall <- sum(dpois(x = dat, lambda =H, log = TRUE)) # fit to timeseries
+   LLmulti <- dmultinom(x= colSums(H1),prob = agedist_Sim,log = T) # fit to age distribution
+   
+   #prior
+   durprior <- dgamma(x=durx,22,5,log=T)
+
+   #total LL
+   LL <- LLall+LLmulti+durprior
+   
+   return(LL)
+}
+
+fitLL <- optim(par = c(2.198522,  -1.638387 , -1.301047 ,  4.619743 ),           # starting values for beta and gamma - you should get the same result no matter which values you choose here
+      fn = fitmodel,        # the distance function to optimise
+      dat = Hosp_sim,         # the dataset to fit to ("dat" argument is passed to the function specified in fn)
+      control = list(fnscale=-1)) # the log likelihood is negative; here we minimize the negative log likelihood
+```
+
